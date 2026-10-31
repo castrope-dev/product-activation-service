@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Build e testes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@4c125117fe7c5aed11272ec4213f602f012f89f2
+      - run: chmod +x gradlew
+
+      - name: Build e testes (incluindo PostgreSQL)
+        run: |
+          docker info
+          ./gradlew clean build --no-daemon
+
+      - name: Exigir execução dos testes PostgreSQL
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          report = ET.parse('build/test-results/test/TEST-com.product.activation.application.PostgresConcurrencyTest.xml').getroot()
+          assert int(report.attrib['tests']) > 0, 'Nenhum teste PostgreSQL executado'
+          assert int(report.attrib['skipped']) == 0, 'Testes PostgreSQL não podem ser pulados na CI'
+          PY
+
+      - name: Resumo de cobertura
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          report = Path('build/reports/jacoco/test/jacocoTestReport.xml')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('## Cobertura JaCoCo\n\n')
+              if report.exists():
+                  summary.write('| Métrica | Cobertos | Total | Cobertura |\n| --- | ---: | ---: | ---: |\n')
+                  for counter in ET.parse(report).getroot().findall('counter'):
+                      covered = int(counter.attrib['covered'])
+                      total = covered + int(counter.attrib['missed'])
+                      percent = f'{100 * covered / total:.2f}%' if total else 'N/A'
+                      summary.write(f"| {counter.attrib['type']} | {covered} | {total} | {percent} |\n")
+                  summary.write('\nBaixe verification-reports em Artifacts para consultar o HTML completo.\n')
+              else:
+                  summary.write('Relatório não gerado: verifique a etapa de build/testes.\n')
+          PY
+
+      - name: Disponibilizar relatórios de testes e cobertura
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        if: always()
+        with:
+          name: verification-reports
+          retention-days: 14
+          path: |
+            build/reports/
+            build/test-results/

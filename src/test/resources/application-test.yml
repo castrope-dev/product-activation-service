@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:activation;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ''
+activation:
+  worker:
+    enabled: false
+  api:
+    requests-per-minute: 10000
+management:
+  tracing:
+    enabled: false
+logging:
+  structured:
+    format:
+      console: ''

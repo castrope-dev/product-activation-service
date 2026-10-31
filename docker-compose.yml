@@ -1,0 +1,47 @@
+services:
+  database:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: activation
+      POSTGRES_USER: activation
+      POSTGRES_PASSWORD: activation
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U activation -d activation"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  provider:
+    build: ./dev/provider
+    ports:
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DB_URL: jdbc:postgresql://database:5432/activation
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE-demo}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      DB_USER: activation
+      DB_PASSWORD: activation
+      PROVIDER_URL: http://provider:8080
+      JWT_ISSUER: http://localhost:8081
+      JWT_JWK_SET_URI: http://provider:8080/.well-known/jwks.json
+    depends_on:
+      database:
+        condition: service_healthy
+      provider:
+        condition: service_healthy
+    mem_limit: 512m
+    stop_grace_period: 40s
+volumes:
+  database:
